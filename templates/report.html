@@ -1,0 +1,195 @@
+{% extends "base.html" %}
+
+{% block title %}Balance Report - Inventory System{% endblock %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col">
+        <h1><i class="bi bi-file-earmark-bar-graph"></i> Balance Report</h1>
+        <p class="text-muted">Current stock levels across all locations</p>
+    </div>
+    <div class="col-auto">
+        <a href="{{ url_for('report_pdf') }}" class="btn btn-danger">
+            <i class="bi bi-file-pdf"></i> Download PDF
+        </a>
+        <button onclick="window.print()" class="btn btn-outline-primary">
+            <i class="bi bi-printer"></i> Print
+        </button>
+    </div>
+</div>
+
+<!-- Balance Table -->
+<div class="card">
+    <div class="card-body">
+        {% if balance %}
+        <div class="table-responsive">
+            <table class="table table-hover" id="balanceTable">
+                <thead class="table-primary">
+                    <tr>
+                        <th>Product ID</th>
+                        <th>Product Name</th>
+                        <th>Location</th>
+                        <th>Quantity</th>
+                        <th class="no-print">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for item in balance %}
+                    <tr class="{% if item.qty <= 5 %}table-warning{% endif %}">
+                        <td><span class="badge bg-secondary">{{ item.product_id }}</span></td>
+                        <td><strong>{{ item.product_name }}</strong></td>
+                        <td>{{ item.location_name }}</td>
+                        <td>
+                            <span class="badge {% if item.qty <= 5 %}bg-danger{% else %}bg-success{% endif %} qty-badge" 
+                                  data-product="{{ item.product_id }}" 
+                                  data-location="{{ item.location_id }}">
+                                {{ item.qty }}
+                            </span>
+                            {% if item.qty <= 5 %}
+                                <i class="bi bi-exclamation-triangle text-warning" title="Low stock!"></i>
+                            {% endif %}
+                        </td>
+                        <td class="no-print">
+                            <button class="btn btn-sm btn-outline-primary edit-balance-btn"
+                                    data-product-id="{{ item.product_id }}"
+                                    data-location-id="{{ item.location_id }}"
+                                    data-current-qty="{{ item.qty }}"
+                                    data-product-name="{{ item.product_name }}"
+                                    data-location-name="{{ item.location_name }}">
+                                <i class="bi bi-pencil"></i> Edit
+                            </button>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        
+        <div class="mt-3 text-muted">
+            <small>
+                <i class="bi bi-info-circle"></i> 
+                Total items shown: {{ balance|length }}
+            </small>
+        </div>
+        {% else %}
+        <div class="text-center py-5">
+            <i class="bi bi-file-earmark-bar-graph" style="font-size: 4rem; color: #ccc;"></i>
+            <p class="text-muted mt-3">No stock data available. Add products and record movements to see the balance.</p>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Edit Balance Modal -->
+<div class="modal fade" id="editBalanceModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Edit Stock Balance</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-3">
+                    <label class="form-label">Product</label>
+                    <input type="text" class="form-control" id="editProductName" readonly>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Location</label>
+                    <input type="text" class="form-control" id="editLocationName" readonly>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Current Quantity</label>
+                    <input type="text" class="form-control" id="editCurrentQty" readonly>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">New Quantity <span class="text-danger">*</span></label>
+                    <input type="number" class="form-control" id="editNewQty" min="0" required>
+                </div>
+                <input type="hidden" id="editProductId">
+                <input type="hidden" id="editLocationId">
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" id="saveBalanceBtn">
+                    <i class="bi bi-save"></i> Save Changes
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const editModal = new bootstrap.Modal(document.getElementById('editBalanceModal'));
+    
+    // Edit balance button click
+    document.querySelectorAll('.edit-balance-btn').forEach(btn => {
+        btn.addEventListener('click', function() {
+            document.getElementById('editProductId').value = this.dataset.productId;
+            document.getElementById('editLocationId').value = this.dataset.locationId;
+            document.getElementById('editProductName').value = this.dataset.productName;
+            document.getElementById('editLocationName').value = this.dataset.locationName;
+            document.getElementById('editCurrentQty').value = this.dataset.currentQty;
+            document.getElementById('editNewQty').value = this.dataset.currentQty;
+            editModal.show();
+        });
+    });
+    
+    // Save balance changes
+    document.getElementById('saveBalanceBtn').addEventListener('click', async function() {
+        const productId = document.getElementById('editProductId').value;
+        const locationId = document.getElementById('editLocationId').value;
+        const newQty = parseInt(document.getElementById('editNewQty').value);
+        
+        if (isNaN(newQty) || newQty < 0) {
+            alert('Please enter a valid quantity');
+            return;
+        }
+        
+        try {
+            const response = await fetch('/api/update_balance', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    product_id: productId,
+                    location_id: locationId,
+                    qty: newQty
+                })
+            });
+            
+            const data = await response.json();
+            
+            if (data.success) {
+                // Update the badge in the table
+                const badge = document.querySelector(`[data-product="${productId}"][data-location="${locationId}"]`);
+                if (badge) {
+                    badge.textContent = newQty;
+                    badge.className = 'badge qty-badge ' + (newQty <= 5 ? 'bg-danger' : 'bg-success');
+                }
+                editModal.hide();
+                alert('Balance updated successfully!');
+                location.reload(); // Refresh to show updated data
+            }
+        } catch (error) {
+            alert('Error updating balance: ' + error.message);
+        }
+    });
+});
+</script>
+
+<style>
+@media print {
+    .no-print {
+        display: none !important;
+    }
+    nav, footer {
+        display: none !important;
+    }
+}
+</style>
+{% endblock %}
